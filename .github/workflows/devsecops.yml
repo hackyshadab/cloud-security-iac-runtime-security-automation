@@ -1,0 +1,62 @@
+name: DevSecops CI Pipeline
+
+on:
+    push:
+        branches: [ "main" ]
+
+jobs:
+    security-scan:
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Checkout Code
+              uses: actions/checkout@v3
+
+            - name: Setup Terraform
+              uses: hashicorp/setup-terraform@v2
+
+            - name: Terraform Init
+              run: terraform init
+              working-directory: terraform/environments/dev
+
+            - name: Terraform Validate
+              run: terraform validate
+              working-directory: terraform/environments/dev
+
+            - name: Run tfsec
+              run: |
+                curl -s https://raw.githubusercontent.com/aquasecurity/tfsec/master/scripts/install_linux.sh | bash
+                tfsec terraform/
+
+            - name: Run Checkov
+              run: |
+                pip install checkov
+                checkov -d terraform/
+
+            - name: Install OPA
+              run: |
+                curl -L -o opa https://openpolicyagent.org/downloads/latest/opa_linux_amd64
+                chmod +x opa
+                sudo mv opa /usr/local/bin/
+
+            - name: Run OPA Policies
+              run: |
+                  terraform plan -out=tfplan
+                  terraform show -json tfplan > input.json
+
+                  RESULT=$(opa eval \
+                  --format raw \
+                  --data ../../policies/opa \
+                  --input input.json \
+                  "data.security.deny")
+
+                  echo "$RESULT"
+
+                  if [ "$RESULT" != "[]" ]; then
+                  echo "❌ Policy violations found"
+                  exit 1
+                  fi
+              working-directory: terraform/environments/dev
+
+            
+
