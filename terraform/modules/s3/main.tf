@@ -1,3 +1,11 @@
+# -----------------------------
+# 🔐 ACCOUNT DATA (FOR KMS POLICY)
+# -----------------------------
+data "aws_caller_identity" "current" {}
+
+# -----------------------------
+# 🪣 MAIN BUCKET
+# -----------------------------
 resource "aws_s3_bucket" "secure_bucket" {
   bucket = var.bucket_name
 
@@ -20,7 +28,7 @@ resource "aws_s3_bucket_versioning" "versioning" {
 }
 
 # -----------------------------
-# ✅ KMS KEY (FIXED)
+# 🔐 KMS KEY (SECURE POLICY)
 # -----------------------------
 resource "aws_kms_key" "s3_key" {
   description             = "KMS key for S3 encryption"
@@ -31,10 +39,10 @@ resource "aws_kms_key" "s3_key" {
     Version = "2012-10-17"
     Statement = [
       {
-        Sid      = "Enable IAM User Permissions"
-        Effect   = "Allow"
+        Sid    = "AllowAccountAccess"
+        Effect = "Allow"
         Principal = {
-          AWS = "*"
+          AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"
         }
         Action   = "kms:*"
         Resource = "*"
@@ -44,7 +52,7 @@ resource "aws_kms_key" "s3_key" {
 }
 
 # -----------------------------
-# ✅ ENCRYPTION
+# 🔐 ENCRYPTION (KMS)
 # -----------------------------
 resource "aws_s3_bucket_server_side_encryption_configuration" "encryption" {
   bucket = aws_s3_bucket.secure_bucket.id
@@ -58,7 +66,7 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "encryption" {
 }
 
 # -----------------------------
-# ✅ PUBLIC ACCESS BLOCK
+# 🚫 PUBLIC ACCESS BLOCK
 # -----------------------------
 resource "aws_s3_bucket_public_access_block" "block" {
   bucket = aws_s3_bucket.secure_bucket.id
@@ -72,7 +80,6 @@ resource "aws_s3_bucket_public_access_block" "block" {
 # =============================
 # 🔐 LOG BUCKET (FULLY SECURED)
 # =============================
-
 resource "aws_s3_bucket" "log_bucket" {
   bucket = "${var.bucket_name}-logs"
 
@@ -82,18 +89,7 @@ resource "aws_s3_bucket" "log_bucket" {
   }
 }
 
-# ✅ Log bucket encryption
-resource "aws_s3_bucket_server_side_encryption_configuration" "log_encryption" {
-  bucket = aws_s3_bucket.log_bucket.id
-
-  rule {
-    apply_server_side_encryption_by_default {
-      sse_algorithm = "AES256"
-    }
-  }
-}
-
-# ✅ Log bucket versioning
+# ✅ LOG BUCKET VERSIONING
 resource "aws_s3_bucket_versioning" "log_versioning" {
   bucket = aws_s3_bucket.log_bucket.id
 
@@ -102,7 +98,19 @@ resource "aws_s3_bucket_versioning" "log_versioning" {
   }
 }
 
-# ✅ Log bucket public block
+# ✅ LOG BUCKET ENCRYPTION (KMS)
+resource "aws_s3_bucket_server_side_encryption_configuration" "log_encryption" {
+  bucket = aws_s3_bucket.log_bucket.id
+
+  rule {
+    apply_server_side_encryption_by_default {
+      kms_master_key_id = aws_kms_key.s3_key.arn
+      sse_algorithm     = "aws:kms"
+    }
+  }
+}
+
+# ✅ LOG BUCKET PUBLIC BLOCK
 resource "aws_s3_bucket_public_access_block" "log_block" {
   bucket = aws_s3_bucket.log_bucket.id
 
@@ -113,7 +121,7 @@ resource "aws_s3_bucket_public_access_block" "log_block" {
 }
 
 # -----------------------------
-# ✅ ACCESS LOGGING
+# 📊 ACCESS LOGGING
 # -----------------------------
 resource "aws_s3_bucket_logging" "logging" {
   bucket        = aws_s3_bucket.secure_bucket.id
@@ -122,7 +130,7 @@ resource "aws_s3_bucket_logging" "logging" {
 }
 
 # -----------------------------
-# ✅ LIFECYCLE (IMPROVED)
+# 🔄 LIFECYCLE (MAIN BUCKET)
 # -----------------------------
 resource "aws_s3_bucket_lifecycle_configuration" "lifecycle" {
   bucket = aws_s3_bucket.secure_bucket.id
@@ -142,7 +150,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "lifecycle" {
 }
 
 # -----------------------------
-# ✅ LOG BUCKET LIFECYCLE
+# 🔄 LIFECYCLE (LOG BUCKET)
 # -----------------------------
 resource "aws_s3_bucket_lifecycle_configuration" "log_lifecycle" {
   bucket = aws_s3_bucket.log_bucket.id
@@ -153,6 +161,10 @@ resource "aws_s3_bucket_lifecycle_configuration" "log_lifecycle" {
 
     expiration {
       days = 180
+    }
+
+    abort_incomplete_multipart_upload {
+      days_after_initiation = 7
     }
   }
 }
