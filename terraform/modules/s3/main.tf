@@ -1,5 +1,5 @@
 resource "aws_s3_bucket" "secure_bucket" {
-    bucket = var.bucket.name
+    bucket = var.bucket_name
 
     tags = {
       Environment = var.environment
