@@ -53,7 +53,7 @@ jobs:
 
                   RESULT=$(opa eval \
                   --format raw \
-                  --data ../../policies/opa \
+                  --data ../../../policies/opa \
                   --input input.json \
                   "data.security.deny")
 
