@@ -1,24 +1,15 @@
-# -----------------------------
-# 📊 VARIABLES
-# -----------------------------
 
 variable "admin_account_id" {
   type    = string
   default = null
 }
 
-# -----------------------------
-# 📊 DATA SOURCES
-# -----------------------------
 data "aws_caller_identity" "current" {}
 
 data "aws_vpc" "default" {
   default = true
 }
 
-# -----------------------------
-# 🔐 KMS KEY
-# -----------------------------
 resource "aws_kms_key" "logs_key" {
   description             = "KMS key for logs encryption"
   deletion_window_in_days = 7
@@ -40,15 +31,11 @@ resource "aws_kms_key" "logs_key" {
   })
 }
 
-# -----------------------------
-# 🛡️ GUARDDUTY (SAFE)
-# -----------------------------
 resource "aws_guardduty_detector" "main" {
   enable                       = true
   finding_publishing_frequency = "FIFTEEN_MINUTES"
 }
 
-# Optional (only if org used)
 resource "aws_guardduty_organization_admin_account" "admin" {
   count = var.admin_account_id != null ? 1 : 0
 
@@ -62,17 +49,12 @@ resource "aws_guardduty_organization_configuration" "org_config" {
   auto_enable_organization_members = "ALL"
 }
 
-# -----------------------------
-# 🔔 SNS (ENCRYPTED)
-# -----------------------------
+
 resource "aws_sns_topic" "cloudtrail_alerts" {
   name              = "cloudtrail-alerts"
   kms_master_key_id = aws_kms_key.logs_key.arn
 }
 
-# -----------------------------
-# 🪣 ACCESS LOGS BUCKET
-# -----------------------------
 resource "aws_s3_bucket" "access_logs" {
   bucket = "${var.project_name}-access-logs"
 }
@@ -122,9 +104,6 @@ resource "aws_s3_bucket_lifecycle_configuration" "access_logs_lifecycle" {
   }
 }
 
-# -----------------------------
-# 🪣 CLOUDTRAIL BUCKET
-# -----------------------------
 resource "aws_s3_bucket" "cloudtrail_logs" {
   bucket        = "${var.project_name}-cloudtrail-logs"
   force_destroy = true
@@ -158,14 +137,14 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "cloudtrail_encryp
   }
 }
 
-# ✅ FIX: ACCESS LOGGING ENABLED
+
 resource "aws_s3_bucket_logging" "cloudtrail_logging" {
   bucket        = aws_s3_bucket.cloudtrail_logs.id
   target_bucket = aws_s3_bucket.access_logs.id
   target_prefix = "cloudtrail/"
 }
 
-# ✅ FIX: Lifecycle with abort rule
+
 resource "aws_s3_bucket_lifecycle_configuration" "cloudtrail_lifecycle" {
   bucket = aws_s3_bucket.cloudtrail_logs.id
 
@@ -183,18 +162,13 @@ resource "aws_s3_bucket_lifecycle_configuration" "cloudtrail_lifecycle" {
   }
 }
 
-# -----------------------------
-# 📊 CLOUDWATCH
-# -----------------------------
 resource "aws_cloudwatch_log_group" "cloudtrail_logs" {
   name              = "/aws/cloudtrail/logs"
   retention_in_days = 365
   kms_key_id        = aws_kms_key.logs_key.arn
 }
 
-# -----------------------------
-# 🔐 IAM ROLE (CLOUDTRAIL)
-# -----------------------------
+
 resource "aws_iam_role" "cloudtrail_role" {
   name = "cloudtrail-role"
 
@@ -226,9 +200,7 @@ resource "aws_iam_role_policy" "cloudtrail_policy" {
   })
 }
 
-# -----------------------------
-# 📜 CLOUDTRAIL
-# -----------------------------
+
 resource "aws_cloudtrail" "main" {
   name                          = "cloudtrail-logging"
   s3_bucket_name                = aws_s3_bucket.cloudtrail_logs.id
@@ -244,9 +216,7 @@ resource "aws_cloudtrail" "main" {
   cloud_watch_logs_role_arn  = aws_iam_role.cloudtrail_role.arn
 }
 
-# -----------------------------
-# 🌐 VPC FLOW LOGS
-# -----------------------------
+
 resource "aws_cloudwatch_log_group" "vpc_flow_logs" {
   name              = "/aws/vpc/flowlogs"
   retention_in_days = 365
@@ -283,7 +253,7 @@ resource "aws_iam_role_policy" "flow_logs_policy" {
     }]
   })
 }
-# l
+
 resource "aws_flow_log" "vpc_flow_logs" {
   log_destination      = aws_cloudwatch_log_group.vpc_flow_logs.arn
   log_destination_type = "cloud-watch-logs"
