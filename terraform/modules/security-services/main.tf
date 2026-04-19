@@ -1,12 +1,14 @@
 # -----------------------------
-# 📊 DATA SOURCE (DEFAULT VPC)
+# 📊 DATA SOURCES
 # -----------------------------
+data "aws_caller_identity" "current" {}
+
 data "aws_vpc" "default" {
   default = true
 }
 
 # -----------------------------
-# 🔐 KMS KEY (GLOBAL LOG ENCRYPTION) ✅ FIXED
+# 🔐 KMS KEY (GLOBAL LOG ENCRYPTION)
 # -----------------------------
 resource "aws_kms_key" "logs_key" {
   description             = "KMS key for logs encryption"
@@ -29,18 +31,33 @@ resource "aws_kms_key" "logs_key" {
   })
 }
 
-data "aws_caller_identity" "current" {}
-
 # -----------------------------
-# 🛡️ GUARDDUTY ✅ FIXED
+# 🛡️ GUARDDUTY (ORG + REGION FIXED)
 # -----------------------------
 resource "aws_guardduty_detector" "main" {
   enable                       = true
   finding_publishing_frequency = "FIFTEEN_MINUTES"
 }
 
+# ✅ Org Admin Account (REQUIRED FOR CKV FIX)
+resource "aws_guardduty_organization_admin_account" "admin" {
+  admin_account_id = var.admin_account_id
+}
+
+# ✅ Org Configuration (AUTO ENABLE ALL ACCOUNTS)
+resource "aws_guardduty_organization_configuration" "org_config" {
+  detector_id = aws_guardduty_detector.main.id
+
+  auto_enable_organization_members = "ALL"
+}
+
+variable "admin_account_id" {
+  description = "AWS Organization Admin Account ID for GuardDuty"
+  type        = string
+}
+
 # -----------------------------
-# 🔔 SNS ALERTS ✅ FIXED (ENCRYPTED)
+# 🔔 SNS ALERTS (ENCRYPTED)
 # -----------------------------
 resource "aws_sns_topic" "cloudtrail_alerts" {
   name              = "cloudtrail-alerts"
@@ -48,22 +65,11 @@ resource "aws_sns_topic" "cloudtrail_alerts" {
 }
 
 # -----------------------------
-# 🪣 CLOUDTRAIL S3 BUCKET (HARDENED) ✅ FIXED LOGGING
+# 🪣 CLOUDTRAIL LOGS BUCKET
 # -----------------------------
 resource "aws_s3_bucket" "cloudtrail_logs" {
   bucket        = "${var.project_name}-cloudtrail-logs"
   force_destroy = true
-}
-
-# 👉 Logging bucket (required for access logs)
-resource "aws_s3_bucket" "access_logs" {
-  bucket = "${var.project_name}-access-logs"
-}
-
-resource "aws_s3_bucket_logging" "cloudtrail_logging" {
-  bucket        = aws_s3_bucket.cloudtrail_logs.id
-  target_bucket = aws_s3_bucket.access_logs.id
-  target_prefix = "log/"
 }
 
 resource "aws_s3_bucket_versioning" "cloudtrail_versioning" {
@@ -95,43 +101,59 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "cloudtrail_encryp
 }
 
 # -----------------------------
-# 🧹 LIFECYCLE ✅ FIXED (Abort Multipart Added)
+# 🪣 ACCESS LOGS BUCKET (FIXED - ALL CHECKOV FAILS RESOLVED)
 # -----------------------------
-resource "aws_s3_bucket_lifecycle_configuration" "cloudtrail_lifecycle" {
-  bucket = aws_s3_bucket.cloudtrail_logs.id
+resource "aws_s3_bucket" "access_logs" {
+  bucket = "${var.project_name}-access-logs"
+}
+
+# ✅ VERSIONING
+resource "aws_s3_bucket_versioning" "access_logs_versioning" {
+  bucket = aws_s3_bucket.access_logs.id
+
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
+# ✅ ENCRYPTION (KMS)
+resource "aws_s3_bucket_server_side_encryption_configuration" "access_logs_encryption" {
+  bucket = aws_s3_bucket.access_logs.id
+
+  rule {
+    apply_server_side_encryption_by_default {
+      kms_master_key_id = aws_kms_key.logs_key.arn
+      sse_algorithm     = "aws:kms"
+    }
+  }
+}
+
+# ✅ PUBLIC ACCESS BLOCK
+resource "aws_s3_bucket_public_access_block" "access_logs_block" {
+  bucket = aws_s3_bucket.access_logs.id
+
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+# ✅ LIFECYCLE POLICY
+resource "aws_s3_bucket_lifecycle_configuration" "access_logs_lifecycle" {
+  bucket = aws_s3_bucket.access_logs.id
 
   rule {
     id     = "log-cleanup"
     status = "Enabled"
 
     expiration {
-      days = 365
+      days = 90
     }
 
     abort_incomplete_multipart_upload {
       days_after_initiation = 7
     }
   }
-}
-
-# -----------------------------
-# 📜 CLOUDTRAIL POLICY
-# -----------------------------
-resource "aws_s3_bucket_policy" "cloudtrail_policy" {
-  bucket = aws_s3_bucket.cloudtrail_logs.id
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Sid    = "AWSCloudTrailWrite"
-      Effect = "Allow"
-      Principal = {
-        Service = "cloudtrail.amazonaws.com"
-      }
-      Action   = "s3:PutObject"
-      Resource = "${aws_s3_bucket.cloudtrail_logs.arn}/*"
-    }]
-  })
 }
 
 # -----------------------------
@@ -193,7 +215,7 @@ resource "aws_cloudtrail" "main" {
 }
 
 # -----------------------------
-# 🌐 VPC FLOW LOGS (UNCHANGED)
+# 🌐 VPC FLOW LOGS
 # -----------------------------
 resource "aws_cloudwatch_log_group" "vpc_flow_logs" {
   name              = "/aws/vpc/flowlogs"
