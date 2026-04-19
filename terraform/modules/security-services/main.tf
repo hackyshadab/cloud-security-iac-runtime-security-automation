@@ -14,7 +14,7 @@ resource "aws_kms_key" "logs_key" {
   enable_key_rotation     = true
 }
 
-# -----------------------------
+
 # 🛡️ GUARDDUTY
 # -----------------------------
 resource "aws_guardduty_detector" "main" {
