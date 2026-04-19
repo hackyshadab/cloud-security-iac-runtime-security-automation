@@ -52,10 +52,17 @@ resource "aws_guardduty_organization_configuration" "org_config" {
 }
 
 variable "admin_account_id" {
-  description = "AWS Organization Admin Account ID for GuardDuty"
-  type        = string
+  type    = string
+  default = null
 }
 
+locals {
+  admin_id = var.admin_account_id != null ? var.admin_account_id : data.aws_caller_identity.current.account_id
+}
+
+resource "aws_guardduty_organization_admin_account" "admin" {
+  admin_account_id = local.admin_id
+}
 # -----------------------------
 # 🔔 SNS ALERTS (ENCRYPTED)
 # -----------------------------
