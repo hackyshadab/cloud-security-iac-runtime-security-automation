@@ -125,6 +125,8 @@ resource "aws_sns_topic_subscription" "email_alert" {
   endpoint  = var.alert_email
 }
 
+
+
 # -----------------------------
 # 🪣 ACCESS LOG BUCKET
 # -----------------------------
@@ -175,6 +177,15 @@ resource "aws_s3_bucket_lifecycle_configuration" "access_logs_lifecycle" {
       days_after_initiation = 7
     }
   }
+}
+
+
+resource "aws_sqs_queue" "lambda_dlq" {
+  name = "${var.project_name}-lambda-dlq"
+
+  message_retention_seconds = 1209600  # 14 days (max)
+
+  kms_master_key_id = aws_kms_key.logs_key.arn
 }
 
 # -----------------------------
