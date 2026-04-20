@@ -493,6 +493,8 @@ resource "aws_lambda_function" "incident_handler" {
   filename         = "${path.module}/lambda.zip"
   source_code_hash = filebase64sha256("${path.module}/lambda.zip")
 
+  kms_key_arn = aws_kms_key.logs_key.arn 
+
   reserved_concurrent_executions = 5
 
   tracing_config {
