@@ -10,4 +10,6 @@ module "security_services" {
 
   project_name  = "cloud-sec"
   config_bucket = module.secure_s3.bucket_id
+
+  alert_email   = var.alert_email 
 }
