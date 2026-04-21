@@ -111,6 +111,52 @@ resource "aws_guardduty_organization_configuration" "org_config" {
   auto_enable_organization_members = "ALL"
 }
 
+resource "aws_cloudwatch_event_rule" "securityhub_rule" {
+  name = "securityhub-findings-rule"
+
+  event_pattern = jsonencode({
+    source      = ["aws.securityhub"]
+    detail-type = ["Security Hub Findings - Imported"]
+  })
+}
+
+resource "aws_cloudwatch_event_target" "securityhub_target" {
+  rule      = aws_cloudwatch_event_rule.securityhub_rule.name
+  target_id = "SendToLambda"
+  arn       = aws_lambda_function.incident_handler.arn
+}
+
+resource "aws_cloudwatch_event_rule" "config_rule" {
+  name = "config-changes-rule"
+
+  event_pattern = jsonencode({
+    source      = ["aws.config"]
+    detail-type = ["Config Rules Compliance Change"]
+  })
+}
+
+resource "aws_cloudwatch_event_target" "config_target" {
+  rule      = aws_cloudwatch_event_rule.config_rule.name
+  target_id = "SendToLambda"
+  arn       = aws_lambda_function.incident_handler.arn
+}
+
+resource "aws_lambda_permission" "allow_securityhub" {
+  statement_id  = "AllowExecutionFromSecurityHub"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.incident_handler.function_name
+  principal     = "events.amazonaws.com"
+  source_arn    = aws_cloudwatch_event_rule.securityhub_rule.arn
+}
+
+resource "aws_lambda_permission" "allow_config" {
+  statement_id  = "AllowExecutionFromConfig"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.incident_handler.function_name
+  principal     = "events.amazonaws.com"
+  source_arn    = aws_cloudwatch_event_rule.config_rule.arn
+}
+
 # -----------------------------
 # 📧 SNS TOPIC FOR ALERTS
 # -----------------------------
@@ -338,6 +384,7 @@ resource "aws_iam_role_policy" "cloudtrail_logs_policy" {
         Resource = "${aws_cloudwatch_log_group.cloudtrail_logs.arn}:*"
       }
     ]
+    
   })
 }
 
@@ -350,7 +397,7 @@ resource "aws_cloudtrail" "main" {
 
   enable_log_file_validation = true
   kms_key_id                 = aws_kms_key.logs_key.arn
-  sns_topic_name             = aws_sns_topic.cloudtrail_alerts.name
+  # sns_topic_name             = aws_sns_topic.cloudtrail_alerts.name
 
   cloud_watch_logs_group_arn = "${aws_cloudwatch_log_group.cloudtrail_logs.arn}:*"
   cloud_watch_logs_role_arn  = aws_iam_role.cloudtrail_role.arn
@@ -462,6 +509,7 @@ resource "aws_iam_role_policy" "lambda_policy" {
           "logs:CreateLogStream",
           "logs:PutLogEvents"
         ]
+        
         # Resource = "*"
         Resource = [
           "arn:aws:logs:${var.region}:${data.aws_caller_identity.current.account_id}:log-group:/aws/lambda/incident-handler:*"
@@ -476,6 +524,13 @@ resource "aws_iam_role_policy" "lambda_policy" {
           "kms:Decrypt"
         ]
         Resource = aws_kms_key.logs_key.arn
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "sqs:SendMessage"
+        ]
+        Resource = aws_sqs_queue.lambda_dlq.arn
       }
     ]
   })
@@ -495,7 +550,7 @@ resource "aws_lambda_function" "incident_handler" {
 
   kms_key_arn = aws_kms_key.logs_key.arn 
 
-  reserved_concurrent_executions = 5
+  reserved_concurrent_executions = -1
 
   tracing_config {
     mode = "Active"

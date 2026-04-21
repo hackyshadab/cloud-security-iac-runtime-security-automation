@@ -8,5 +8,5 @@ variable "alert_email" {
 
 variable "region" {
   type    = string
-  default = "us-east-1"  # or your desired region
+  default = "us-east-1"  
 }
